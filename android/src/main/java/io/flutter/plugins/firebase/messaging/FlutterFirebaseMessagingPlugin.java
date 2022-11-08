@@ -16,8 +16,10 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import android.util.Log;
 import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationManagerCompat;
+import android.preference.PreferenceManager;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import com.google.android.gms.tasks.Task;
 import com.google.android.gms.tasks.TaskCompletionSource;
@@ -53,6 +55,7 @@ public class FlutterFirebaseMessagingPlugin extends BroadcastReceiver
   private Activity mainActivity;
   private RemoteMessage initialMessage;
   FlutterFirebasePermissionManager permissionManager;
+  public static final String GIMBAL_FLAG = "GIMBAL_FLAG";
 
   private void initInstance(BinaryMessenger messenger) {
     String channelName = "plugins.flutter.io/firebase_messaging";
@@ -114,6 +117,9 @@ public class FlutterFirebaseMessagingPlugin extends BroadcastReceiver
   public void onReceive(Context context, Intent intent) {
     String action = intent.getAction();
 
+    Log.d("firebase", "FlutterFirebaseMessagingPlugin.onReceive action: " + action);
+    Log.d("firebase", "action.equals(FlutterFirebaseMessagingUtils.ACTION_REMOTE_MESSAGE): " + action.equals(FlutterFirebaseMessagingUtils.ACTION_REMOTE_MESSAGE));
+
     if (action == null) {
       return;
     }
@@ -122,13 +128,49 @@ public class FlutterFirebaseMessagingPlugin extends BroadcastReceiver
       String token = intent.getStringExtra(FlutterFirebaseMessagingUtils.EXTRA_TOKEN);
       channel.invokeMethod("Messaging#onTokenRefresh", token);
     } else if (action.equals(FlutterFirebaseMessagingUtils.ACTION_REMOTE_MESSAGE)) {
-      RemoteMessage message =
-          intent.getParcelableExtra(FlutterFirebaseMessagingUtils.EXTRA_REMOTE_MESSAGE);
-      if (message == null) return;
-      Map<String, Object> content = FlutterFirebaseMessagingUtils.remoteMessageToMap(message);
+        Map<String, Object> content;
+        boolean isGimbal = intent.getBooleanExtra(GIMBAL_FLAG, false);
+
+        Log.d("firebase", "FlutterFirebaseMessagingPlugin.onReceive isGimbal: " + isGimbal);
+
+        if (isGimbal){
+            content = parseGimbalMessage(intent);
+            Log.d("firebase", "FlutterFirebaseMessagingPlugin.onReceive content: " + content.toString());
+        }else {
+            RemoteMessage message =
+                    intent.getParcelableExtra(FlutterFirebaseMessagingUtils.EXTRA_REMOTE_MESSAGE);
+            if (message == null) return;
+
+            content = FlutterFirebaseMessagingUtils.remoteMessageToMap(message);
+        }
+
+        Log.d("firebase", "FlutterFirebaseMessagingPlugin.onReceive invokeMethod Messaging#onMessage");
       channel.invokeMethod("Messaging#onMessage", content);
     }
   }
+
+    @NonNull
+    private Map<String, Object> parseGimbalMessage(Intent intent) {
+        Map<String, Object> content = new HashMap<>();
+
+        Map<String, Object> notificationMap = new HashMap<>();
+
+        String title = intent.getStringExtra("title");
+        notificationMap.put("title", title);
+
+        String body = intent.getStringExtra("body");
+        notificationMap.put("body", body);
+        RemoteMessage message =
+                intent.getParcelableExtra(FlutterFirebaseMessagingUtils.EXTRA_REMOTE_MESSAGE);
+        if (message!=null){
+            for (String s : message.getData().keySet()) {
+                Log.d("TAG","FirebaseMessagePlugin--key="+s);
+            }
+            content.put("data", message.getData());
+        }
+        content.put("notification", notificationMap);
+        return content;
+    }
 
   private Task<Void> deleteToken() {
     TaskCompletionSource<Void> taskCompletionSource = new TaskCompletionSource<>();
@@ -522,6 +564,25 @@ public class FlutterFirebaseMessagingPlugin extends BroadcastReceiver
     String messageId = intent.getExtras().getString("google.message_id");
     if (messageId == null) messageId = intent.getExtras().getString("message_id");
     if (messageId == null) {
+        String userInfo = (String)intent.getExtras().getString("userInfo");
+
+        if(userInfo != null){
+//            HashMap<String, Object> map = new Gson().fromJson(userInfo, HashMap.class);
+
+            HashMap<String, String> data = new HashMap<String, String>();
+            data.put("openAppData", userInfo);
+
+            RemoteMessage remoteMessage = new RemoteMessage.Builder(GIMBAL_FLAG).setData(data).build();
+
+            initialMessage = remoteMessage;
+
+            channel.invokeMethod(
+                    "Messaging#onMessageOpenedApp",
+                    FlutterFirebaseMessagingUtils.remoteMessageToMap(remoteMessage));
+            mainActivity.setIntent(intent);
+            return true;
+        }
+
       return false;
     }
 
