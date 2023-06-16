@@ -14,6 +14,7 @@ import java.util.HashMap;
 
 public class FlutterFirebaseMessagingReceiver extends BroadcastReceiver {
   private static final String TAG = "FLTFireMsgReceiver";
+  private static final String Silent_Flag = "silent";
   static HashMap<String, RemoteMessage> notifications = new HashMap<>();
 
   @Override
@@ -25,13 +26,13 @@ public class FlutterFirebaseMessagingReceiver extends BroadcastReceiver {
 
     if (intent.getExtras() == null) {
       Log.d(
-          TAG,
-          "broadcast received but intent contained no extras to process RemoteMessage. Operation cancelled.");
+              TAG,
+              "broadcast received but intent contained no extras to process RemoteMessage. Operation cancelled.");
       return;
     }
 
     RemoteMessage remoteMessage = new RemoteMessage(intent.getExtras());
-
+    Log.d(TAG, "intent.getExtras="+remoteMessage.getData().toString());
     // Store the RemoteMessage if the message contains a notification payload.
     if (remoteMessage.getNotification() != null) {
       notifications.put(remoteMessage.getMessageId(), remoteMessage);
@@ -48,14 +49,22 @@ public class FlutterFirebaseMessagingReceiver extends BroadcastReceiver {
       return;
     }
 
+    //如果是静默推送
+    if (remoteMessage.getData().containsKey(Silent_Flag)&&remoteMessage.getData().containsKey("content_available")) {
+      Intent onMessageIntent = new Intent(FlutterFirebaseMessagingUtils.ACTION_REMOTE_MESSAGE);
+      onMessageIntent.putExtra(FlutterFirebaseMessagingUtils.EXTRA_REMOTE_MESSAGE, remoteMessage);
+      LocalBroadcastManager.getInstance(context).sendBroadcast(onMessageIntent);
+      return;
+    }
+
     //  |-> ---------------------
     //    App in Background/Quit
     //   ------------------------
     Intent onBackgroundMessageIntent =
-        new Intent(context, FlutterFirebaseMessagingBackgroundService.class);
+            new Intent(context, FlutterFirebaseMessagingBackgroundService.class);
     onBackgroundMessageIntent.putExtra(
-        FlutterFirebaseMessagingUtils.EXTRA_REMOTE_MESSAGE, remoteMessage);
+            FlutterFirebaseMessagingUtils.EXTRA_REMOTE_MESSAGE, remoteMessage);
     FlutterFirebaseMessagingBackgroundService.enqueueMessageProcessing(
-        context, onBackgroundMessageIntent);
+            context, onBackgroundMessageIntent);
   }
 }
